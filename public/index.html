@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VoiceBot — Ask me anything</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, "Segoe UI", Arial; display:flex; gap:20px; align-items:center; justify-content:center; height:100vh; margin:0; background:#f6f8fb; }
+    .card { width:420px; padding:20px; border-radius:12px; box-shadow:0 6px 22px rgba(20,30,60,0.08); background:white; }
+    .big { font-size:20px; margin-bottom:8px; }
+    #transcript { min-height:44px; background:#f1f3f6; padding:10px; border-radius:8px; margin-bottom:10px;}
+    button { padding:12px 16px; border-radius:10px; border:none; cursor:pointer; font-weight:600; }
+    #mic { background:#0b7cff; color:white; width:100%; }
+    #speakBtn { margin-top:10px; background:#e6eefc; color:#0b7cff; }
+    #response { margin-top:14px; white-space:pre-wrap; }
+    input[type="text"] { width:100%; padding:10px; border-radius:8px; border:1px solid #ddd; margin-bottom:8px; }
+  </style>
+</head>
+<body>
+  <div class="card" role="main" aria-label="Voice chatbot">
+    <div class="big">VoiceBot — Ask me anything</div>
+    <div id="transcript" aria-live="polite">Click the microphone and speak (or type) — I’ll speak back.</div>
+    <input id="textInput" type="text" placeholder="Or type your question here" />
+    <button id="mic">🎤 Click to speak</button>
+    <button id="speakBtn">🔊 Play last response</button>
+
+    <div id="response"></div>
+  </div>
+
+<script>
+(async function(){
+  const micBtn = document.getElementById('mic');
+  const textInput = document.getElementById('textInput');
+  const transcriptDiv = document.getElementById('transcript');
+  const responseDiv = document.getElementById('response');
+  const speakBtn = document.getElementById('speakBtn');
+
+  const systemPersona = `You are ChatGPT. Answer friendly, helpful, concise, and thoughtful. When asked personal-style questions (life story, strengths, growth areas), reply as ChatGPT would: honest, concise, with a positive tone. Keep responses short enough to be spoken naturally (about 40-120 words).`;
+
+  let lastAssistantText = '';
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+  }
+
+  function updateTranscript(t) { transcriptDiv.textContent = t; }
+
+  function speakText(text) {
+    if (!('speechSynthesis' in window)) return alert('SpeechSynthesis not available in this browser.');
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 0.98;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  }
+
+  async function sendToServer(userText) {
+    updateTranscript('Sending to bot…');
+    try {
+      const resp = await fetch('/api/chat', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPersona },
+            { role: 'user', content: userText }
+          ]
+        })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        responseDiv.textContent = 'Error: ' + (data.details || data.error);
+        updateTranscript('');
+        return;
+      }
+      const reply = data.reply || '';
+      lastAssistantText = reply;
+      responseDiv.textContent = 'Assistant: ' + reply;
+      updateTranscript('Heard: ' + userText);
+      speakText(reply);
+    } catch (err) {
+      console.error(err);
+      responseDiv.textContent = 'Network/server error: ' + err.message;
+      updateTranscript('');
+    }
+  }
+
+  micBtn.addEventListener('click', () => {
+    if (!recognition) return alert('SpeechRecognition not supported in this browser. Use Chrome or Edge on desktop/mobile.');
+    transcriptDiv.textContent = 'Listening...';
+    recognition.start();
+  });
+
+  if (recognition) {
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      textInput.value = text;
+      updateTranscript(text);
+      sendToServer(text);
+    };
+    recognition.onerror = (e) => {
+      console.error(e);
+      updateTranscript('Recognition error: ' + e.error);
+    };
+  }
+
+  textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const txt = textInput.value.trim();
+      if (txt) sendToServer(txt);
+    }
+  });
+
+  speakBtn.addEventListener('click', () => {
+    if (lastAssistantText) speakText(lastAssistantText);
+  });
+
+  updateTranscript('Ready. Click mic and speak or type your question and press Enter.');
+})();
+</script>
+</body>
+</html>
